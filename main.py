@@ -9,6 +9,7 @@ import random
 # ML
 import torch
 import torch.nn as nn
+import torch.nn.functional as nnf
 
 windows = gw.getAllTitles()
 
@@ -110,8 +111,8 @@ def update_pegs(img):
 '''Returns boolean whether there is an active ball in play'''
 def active_ball(img):
     hsv_frame = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-    ball_lower_bound = np.array([18, 162, 117], np.uint8) #    18, 152, 109
-    ball_upper_bound = np.array([34, 255, 164], np.uint8) #  24, 255, 162
+    ball_lower_bound = np.array([18, 162, 117], np.uint8) #    18, 152, 109 :: 18, 162, 117 :: 2, 205, 220
+    ball_upper_bound = np.array([34, 255, 164], np.uint8) #  24, 255, 162 :: 34, 255, 164 :: 27, 255, 255
 
     ball_mask = cv2.inRange(hsv_frame, ball_lower_bound, ball_upper_bound)
 
@@ -124,15 +125,28 @@ def active_ball(img):
         area = cv2.contourArea(contour)
 
         x, y, w, h = cv2.boundingRect(contour)
-        if ((x > 360 and x < 545) and (y < 160)):
-            if (area > 100 and w < 20 and h < 15):
-                cv2.putText(img, "*" + str(area) + str(w) + str(h), (x, y), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255))
-                img = cv2.rectangle(img, (x, y), (x + w, y + h), (0, 0, 255), 2)
-                return True
+        # return True, img, ball_mask
+        # if (not (x > 360 and x < 545) and (y < 160)):
+        if (area > 100 and w < 20 and h < 15):
+            # cv2.putText(img, "*" + str(area) + str(w) + str(h), (x, y), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 0, 255))
+            img = cv2.rectangle(img, (x, y), (x + w, y + h), (255, 0, 255), 2)
+            return True#, img, ball_mask
 
-    return False #img, ball_mask
+
+    return False#, img, ball_mask
+
+# function to test if active_ball() is working
+# def test_active_ball():
+#     time.sleep(5)
+#     shoot_ball(40)
+#     while True:
+#         img = current_state()
+#         print(active_ball(img))
+#
+# test_active_ball()
 
 
+# primitive run method, just shoot at the first orange in list
 def run():
     while (len(orange_pegs) > 0):
         img = current_state()
@@ -148,10 +162,12 @@ def run():
             img = current_state()
             time.sleep(5)
 
+'''Test active_ball()'''
 # img = current_state()
+# ballornah, ball, ball_mask = active_ball(img)
 # peg_mask = update_pegs(img)
-# ball, ball_mask = active_ball(current_state())
 #
+# print(ballornah)
 # cv2.imshow("Peggle View", img)
 # cv2.imshow("Red View", peg_mask)
 # cv2.imshow("Ball View", ball)
@@ -181,7 +197,8 @@ hit purple
 free ball
 end level with bonus balls
 '''
-def get_state():
+'''
+def get_state(): # Redefine get_state to take in image and determine all orange peg locations
     if not orange_pegs:
         return np.zeros(3, dtype=np.float32)
 
@@ -192,20 +209,55 @@ def get_state():
         np.mean(ys),# bigger is better
         np.std(ys)
     ], dtype=np.float32)
+    
+'''
+
+def get_state(img):
+    resized = cv2.resize(img, (84, 84))
+    normalized = resized.astype(np.float32) / 255.0
+
+    # Transpose from (Height, Width, Channels) to (Channels, Height, Width)
+    state = np.transpose(normalized, (2, 0, 1))
+
+    return state
 
 
 class PegglePlayer(nn.Module):
     def __init__(self):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(3, 64),
-            nn.ReLU(),
-            nn.Linear(64, len(ACTIONS)),
-            nn.Softmax(dim=-1)
-        )
+        # self.net = nn.Sequential(
+        #     nn.Linear(3, 64),
+        #     nn.ReLU(),
+        #     nn.Linear(64, len(ACTIONS)),
+        #     nn.Softmax(dim=-1)
+        # )
+        # Convert to CNN
+
+        # 3 conv layers --> 84x84 to 7x7
+        self.conv1 = nn.Conv2d(in_channels=3, out_channels=32, kernel_size=8, stride=4)
+        self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2)
+        self.conv3 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1)
+
+        # flatten (64 * 7 * 7 = 3136)
+        self.fc1 = nn.Linear(3136, 512)
+        self.fc2 = nn.Linear(512, len(ACTIONS))
+
+
 
     def forward(self, x):
-        return self.net(x)
+        # Pass through convs with relu
+        x = nnf.relu(self.conv1(x))
+        x = nnf.relu(self.conv2(x))
+        x = nnf.relu(self.conv3(x))
+
+        x = x.reshape(x.size(0), -1) # flatten
+
+        # Pass through linear layers
+        x = nnf.relu(self.fc1(x))
+        x = self.fc2(x)
+
+        # Output probs for each angle
+        return nnf.softmax(x, dim=-1)
 
 player = PegglePlayer()
 optimizer = torch.optim.Adam(player.parameters(), lr=1e-3)
@@ -221,7 +273,7 @@ for episode in range(EPISODES):
         if len(orange_pegs) == 0:
             break
 
-        state = get_state()
+        state = get_state(img)
         state_t = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
 
         probs = player(state_t)
@@ -240,13 +292,16 @@ for episode in range(EPISODES):
         shoot_ball(ACTIONS[action_idx])
         while (active_ball(img) == True):
             img = current_state()
-            time.sleep(1)
+            time.sleep(2.5)
+            print("Active Ball")
 
         img = current_state()
         update_pegs(img)
         pegs_after = len(orange_pegs)
 
-        reward = pegs_before = pegs_after
+        reward = pegs_before - pegs_after
+        if reward == 0:
+            reward = -5
         loss = -log_prob * reward
 
         optimizer.zero_grad()
