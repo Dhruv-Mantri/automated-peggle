@@ -208,7 +208,44 @@ def get_current_score():
     except ValueError:
         return 0
 
-print(get_current_score())
+# print(get_current_score())
+
+def get_balls_left():
+    img = current_state_data()
+    score_crop = img[175:230, 20:100]
+
+    '''old implementation'''
+    gray = cv2.cvtColor(score_crop, cv2.COLOR_BGRA2BGR)
+    blurred = cv2.GaussianBlur(gray, (3, 3), 0)
+    # _, thresh = cv2.threshold(blurred, 150, 255, cv2.THRESH_BINARY_INV)
+
+    score_crop = cv2.resize(blurred, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
+    gray = cv2.cvtColor(score_crop, cv2.COLOR_BGR2GRAY)
+
+    # Otsu's method automatically calculates the optimal threshold value
+    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+
+    # small kernel to erode the black text slightly, breaking connections
+    kernel = np.ones((2, 2), np.uint8)
+    thresh = cv2.erode(thresh, kernel, iterations=1)
+
+    # adds a 15-pixel white border to ensure no error in reading
+    thresh = cv2.copyMakeBorder(thresh, 15, 15, 15, 15, cv2.BORDER_CONSTANT, value=255)
+
+    cv2.imshow("Score Crop", thresh)
+    cv2.waitKey(0)
+
+    # --psm 8 tells Tesseract to expect a single word/number
+    # whitelist forces it to only look for digits
+    custom_config = r'--psm 8 -c tessedit_char_whitelist=0123456789'
+    score_str = pytesseract.image_to_string(thresh, config=custom_config)
+
+    try:
+        return int(score_str.strip())
+    except ValueError:
+        return 0
+
+# print(get_balls_left())
 
 # REINFORCEMENT LEARNING
 ACTIONS = np.linspace(-85, 85, 171)
@@ -289,7 +326,7 @@ class PegglePlayer(nn.Module):
 player = PegglePlayer()
 optimizer = torch.optim.Adam(player.parameters(), lr=1e-3)
 
-EPISODES = 0
+EPISODES = 500
 for episode in range(EPISODES):
     # replay_level()
     while True:
