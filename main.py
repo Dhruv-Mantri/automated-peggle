@@ -6,6 +6,9 @@ import pygetwindow as gw
 import time
 import random
 
+import pytesseract
+pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
 # ML
 import torch
 import torch.nn as nn
@@ -47,24 +50,21 @@ def current_state():
 
     return img
 
-# gray = cv2.cvtColor(img, cv2.COLOR_BGRA2GRAY)
-# gray = cv2.medianBlur(gray, 5)
+'''Get image of game data, i.e. score and balls left'''
+def current_state_data():
+    with mss.mss() as sct:
+        monitor = {
+            "left": left,
+            "top": top + 25,
+            "width": width-650,
+            "height": height - 600
+        }
 
-# circles = cv2.HoughCircles(
-#     gray,
-#     cv2.HOUGH_GRADIENT,
-#     dp=1,
-#     minDist=30,
-#     param1=100,
-#     param2=20,
-#     minRadius=10,
-#     maxRadius=25
-# )
-#
-# if circles is not None:
-#     for x, y, r in circles[0]:
-#         if (int(y) > 150) and (int(x) > 150 and int(x) < width - 150):
-#             cv2.circle(img, (int(x), int(y)), int(r), (0, 255, 0), 2)
+        # circle detection
+        img = np.array(sct.grab(monitor))
+        img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+
+    return img
 
 orange_pegs = [0]
 def update_pegs(img):
@@ -135,16 +135,6 @@ def active_ball(img):
 
     return False#, img, ball_mask
 
-# function to test if active_ball() is working
-# def test_active_ball():
-#     time.sleep(5)
-#     shoot_ball(40)
-#     while True:
-#         img = current_state()
-#         print(active_ball(img))
-#
-# test_active_ball()
-
 
 # primitive run method, just shoot at the first orange in list
 def run():
@@ -182,6 +172,43 @@ def replay_level():
     pyautogui.moveTo(left + 710, top + 760) # start level button
     pyautogui.click()
     time.sleep(2)
+
+def get_current_score():
+    img = current_state_data()
+    score_crop = img[20:80, 280:465]
+
+    '''old implementation'''
+    # gray = cv2.cvtColor(score_crop, cv2.COLOR_BGRA2BGR)
+    # blurred = cv2.GaussianBlur(gray, (3, 3), 0)
+    # _, thresh = cv2.threshold(blurred, 150, 255, cv2.THRESH_BINARY_INV)
+
+    score_crop = cv2.resize(score_crop, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
+    gray = cv2.cvtColor(score_crop, cv2.COLOR_BGR2GRAY)
+
+    # Otsu's method automatically calculates the optimal threshold value
+    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+
+    # small kernel to erode the black text slightly, breaking connections
+    kernel = np.ones((2, 2), np.uint8)
+    thresh = cv2.erode(thresh, kernel, iterations=1)
+
+    # adds a 15-pixel white border to ensure no error in reading
+    thresh = cv2.copyMakeBorder(thresh, 15, 15, 15, 15, cv2.BORDER_CONSTANT, value=255)
+
+    cv2.imshow("Score Crop", thresh)
+    cv2.waitKey(0)
+
+    # --psm 8 tells Tesseract to expect a single word/number
+    # whitelist forces it to only look for digits
+    custom_config = r'--psm 8 -c tessedit_char_whitelist=0123456789'
+    score_str = pytesseract.image_to_string(thresh, config=custom_config)
+
+    try:
+        return int(score_str.strip())
+    except ValueError:
+        return 0
+
+print(get_current_score())
 
 # REINFORCEMENT LEARNING
 ACTIONS = np.linspace(-85, 85, 171)
@@ -262,12 +289,13 @@ class PegglePlayer(nn.Module):
 player = PegglePlayer()
 optimizer = torch.optim.Adam(player.parameters(), lr=1e-3)
 
-EPISODES = 500
+EPISODES = 0
 for episode in range(EPISODES):
-    replay_level()
+    # replay_level()
     while True:
 
         img = current_state()
+        current_score = get_current_score()
         update_pegs(img)
 
         if len(orange_pegs) == 0:
@@ -290,10 +318,16 @@ for episode in range(EPISODES):
         pegs_before = len(orange_pegs)
 
         shoot_ball(ACTIONS[action_idx])
-        while (active_ball(img) == True):
-            img = current_state()
-            time.sleep(2.5)
-            print("Active Ball")
+        cnt = 0
+        while (True):
+            if cnt > 7: # Create a max timeout of 14 seconds. Accounts for score misreads and 0 point shots
+                break
+            score = get_current_score()
+            time.sleep(2)
+            if (score != current_score):
+                break
+            print(f"Active Ball. Current:{score} vs {current_score}")
+            cnt += 1
 
         img = current_state()
         update_pegs(img)
