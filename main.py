@@ -137,41 +137,23 @@ def active_ball(img):
 
 
 # primitive run method, just shoot at the first orange in list
-def run():
-    while (len(orange_pegs) > 0):
-        img = current_state()
-        update_pegs(img)
-        time.sleep(1)
-        # cv2.imshow("Peggle View", img)
-
-        # calculate the ball with highest y pos
-        shoot_ball(orange_pegs[0][0], orange_pegs[0][1])
-        # print(orange_pegs[0][0], orange_pegs[0][1])
-        while (active_ball(img) == True):
-            # print(active_ball(img))
-            img = current_state()
-            time.sleep(5)
-
-'''Test active_ball()'''
-# img = current_state()
-# ballornah, ball, ball_mask = active_ball(img)
-# peg_mask = update_pegs(img)
+# def run():
+#     while (len(orange_pegs) > 0):
+#         img = current_state()
+#         update_pegs(img)
+#         time.sleep(1)
+#         # cv2.imshow("Peggle View", img)
 #
-# print(ballornah)
-# cv2.imshow("Peggle View", img)
-# cv2.imshow("Red View", peg_mask)
-# cv2.imshow("Ball View", ball)
-# cv2.imshow("BallMask View", ball_mask)
-# cv2.waitKey(0)
+#         # calculate the ball with highest y pos
+#         shoot_ball(orange_pegs[0][0], orange_pegs[0][1])
+#         # print(orange_pegs[0][0], orange_pegs[0][1])
+#         while (active_ball(img) == True):
+#             # print(active_ball(img))
+#             img = current_state()
+#             time.sleep(5)
 
 def replay_level():
-    time.sleep(5)
-    pyautogui.moveTo(left + 739, top + 593) # restart button
-    pyautogui.click()
-    time.sleep(5)
-    pyautogui.moveTo(left + 710, top + 760) # start level button
-    pyautogui.click()
-    time.sleep(2)
+    pass
 
 def get_current_score():
     img = current_state_data()
@@ -208,8 +190,6 @@ def get_current_score():
     except ValueError:
         return 0
 
-# print(get_current_score())
-
 def get_balls_left():
     img = current_state_data()
     score_crop = img[175:230, 20:100]
@@ -245,8 +225,6 @@ def get_balls_left():
     except ValueError:
         return 0
 
-# print(get_balls_left())
-
 # REINFORCEMENT LEARNING
 ACTIONS = np.linspace(-85, 85, 171)
 
@@ -260,20 +238,6 @@ time in play
 hit purple
 free ball
 end level with bonus balls
-'''
-'''
-def get_state(): # Redefine get_state to take in image and determine all orange peg locations
-    if not orange_pegs:
-        return np.zeros(3, dtype=np.float32)
-
-    ys = [y for _, y in orange_pegs]
-
-    return np.array([
-        len(orange_pegs), # less is better
-        np.mean(ys),# bigger is better
-        np.std(ys)
-    ], dtype=np.float32)
-    
 '''
 
 def get_state(img):
@@ -326,10 +290,19 @@ class PegglePlayer(nn.Module):
 player = PegglePlayer()
 optimizer = torch.optim.Adam(player.parameters(), lr=1e-3)
 
+gamma = 0.99
+best_episode_score = 0
 EPISODES = 500
 for episode in range(EPISODES):
-    # replay_level()
-    while True:
+    replay_level()
+    time.sleep(3)
+
+    log_probs = []
+    rewards = []
+
+    # Play one level
+    balls = get_balls_left()
+    while balls > 0: # end level when no more balls left
 
         img = current_state()
         current_score = get_current_score()
@@ -346,6 +319,7 @@ for episode in range(EPISODES):
 
         if random.random() < 0.2:
             action_idx = random.randrange(len(ACTIONS))
+            action = torch.tensor(action_idx)
             log_prob = torch.log(probs[0, action_idx])
         else:
             action = dist.sample()
@@ -354,7 +328,9 @@ for episode in range(EPISODES):
 
         pegs_before = len(orange_pegs)
 
+        # Take Shot
         shoot_ball(ACTIONS[action_idx])
+
         cnt = 0
         while (True):
             if cnt > 7: # Create a max timeout of 14 seconds. Accounts for score misreads and 0 point shots
@@ -369,16 +345,61 @@ for episode in range(EPISODES):
         img = current_state()
         update_pegs(img)
         pegs_after = len(orange_pegs)
+        score_after = get_current_score()
 
-        reward = pegs_before - pegs_after
+        '''
+        Things to count for reward:
+        Balls Left
+        High Score
+        Orange Pegs hit
+        Purple Pegs hit
+        '''
+
+        reward = (pegs_before - pegs_after) * (score_after - current_score) * 0.01
+        # penalize no orange pegs hit or no points made
         if reward == 0:
-            reward = -5
+            reward = -10
+
+        log_probs.append(log_prob)
+        rewards.append(reward)
         loss = -log_prob * reward
 
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        balls = get_balls_left()
 
         print(f"Angle {ACTIONS[action_idx]:.1f}° | Reward {reward}")
 
-    torch.save(player.state_dict(), "peggle_player.pt")
+    # Calculate weights (step and optimize) after each LEVEL
+
+    # calc Discounted Returns
+    discounted_returns = []
+    R = 0
+    # iterate backwards through the rewards to calc cumulative return --> see how impactful early actions are
+    for r in reversed(rewards):
+        R = r + gamma * R
+        discounted_returns.insert(0, R)
+
+    discounted_returns = torch.tensor(discounted_returns, dtype=torch.float32)
+    # normalize
+    if len(discounted_returns) > 1:
+        discounted_returns = (discounted_returns - discounted_returns.mean()) / (discounted_returns.std() + 1e-9)
+
+    # backprop once an episode
+    policy_loss = []
+    for log_prob, Gt in zip(log_probs, discounted_returns):
+        policy_loss.append(-log_prob * Gt)
+
+    optimizer.zero_grad()
+    # sum all losses from episode and backpropagate
+    loss = torch.stack(policy_loss).sum()
+    loss.backward()
+    optimizer.step()
+
+    print(f"Episode {episode} | Total Score: {episode_score} | Shots taken: {10-balls}")
+
+
+    episode_score = get_current_score()
+    print(f"Episode {episode} finished. Total Score: {episode_score}")
+    if (episode_score > best_episode_score):
+        print("New Best. Saving score.")
+        best_episode_score = episode_score
+        torch.save(player.state_dict(), "peggle_player.pt")
