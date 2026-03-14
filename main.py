@@ -226,8 +226,8 @@ def get_current_score():
     # adds a 15-pixel white border to ensure no error in reading
     thresh = cv2.copyMakeBorder(thresh, 15, 15, 15, 15, cv2.BORDER_CONSTANT, value=255)
 
-    cv2.imshow("Score Crop", thresh)
-    cv2.waitKey(0)
+    # cv2.imshow("Score Crop", thresh)
+    # cv2.waitKey(0)
 
     # --psm 8 tells Tesseract to expect a single word/number
     # whitelist forces it to only look for digits
@@ -261,8 +261,8 @@ def get_balls_left():
     # adds a 15-pixel white border to ensure no error in reading
     thresh = cv2.copyMakeBorder(thresh, 15, 15, 15, 15, cv2.BORDER_CONSTANT, value=255)
 
-    cv2.imshow("Score Crop", thresh)
-    cv2.waitKey(0)
+    # cv2.imshow("Score Crop", thresh)
+    # cv2.waitKey(0)
 
     # --psm 8 tells Tesseract to expect a single word/number
     # whitelist forces it to only look for digits
@@ -369,12 +369,11 @@ for episode in range(EPISODES):
 
         if random.random() < 0.2:
             action_idx = random.randrange(len(ACTIONS))
-            action = torch.tensor(action_idx)
-            log_prob = torch.log(probs[0, action_idx])
         else:
             action = dist.sample()
             action_idx = action.item()
-            log_prob = dist.log_prob(action)
+
+        log_prob = torch.log(probs[0, action_idx])
 
         pegs_before = len(orange_pegs)
 
@@ -405,18 +404,21 @@ for episode in range(EPISODES):
         Purple Pegs hit
         '''
 
-        reward = (pegs_before - pegs_after) * (score_after - current_score) * 0.01
+        # since score cannot decrease, any misreading in score should not penalize the bot
+        if (score_after - current_score < 0):
+            score_after = current_score + 5000 # add scalar of score
+        reward = (pegs_before - pegs_after) * (score_after - current_score) * 0.001 # refactor due to scale of score
         # penalize no orange pegs hit or no points made
         if reward == 0:
             reward = -10
 
         log_probs.append(log_prob)
         rewards.append(reward)
-        loss = -log_prob * reward
+        # loss = -log_prob * reward
 
         balls = get_balls_left()
 
-        print(f"Angle {ACTIONS[action_idx]:.1f}° | Reward {reward}")
+        print(f"Angle {ACTIONS[action_idx]:.1f}° | Reward {reward} | Ball {balls}")
 
     # Calculate weights (step and optimize) after each LEVEL
 
@@ -450,11 +452,9 @@ for episode in range(EPISODES):
     loss.backward()
     optimizer.step()
 
-    print(f"Episode {episode} | Total Score: {episode_score} | Shots taken: {10-balls}")
-
 
     episode_score = get_current_score()
-    print(f"Episode {episode} finished. Total Score: {episode_score}")
+    print(f"Episode {episode} finished. Total Score: {episode_score}. Shots taken: {10-balls}")
     if (episode_score > best_episode_score):
         print("New Best. Saving score.")
         best_episode_score = episode_score
@@ -466,9 +466,9 @@ for episode in range(EPISODES):
     plt.figure(figsize=(10,6))
     plt.plot(all_episode_scores, label='Raw Score', color='lightgray', alpha=0.7)
 
-
-    moving_avg = np.convolve(all_episode_scores, np.ones(10) / 10, mode='valid')
-    plt.plot(range(9, len(all_episode_scores)), moving_avg, label='10-Ep Moving Average', color='blue', linewidth=2)
+    if len(all_episode_scores) >= 10:
+        moving_avg = np.convolve(all_episode_scores, np.ones(10) / 10, mode='valid')
+        plt.plot(range(9, len(all_episode_scores)), moving_avg, label='10-Ep Moving Average', color='blue', linewidth=2)
 
     plt.xlabel('Episode')
     plt.ylabel('Total Score')
@@ -479,3 +479,12 @@ for episode in range(EPISODES):
     # Save chart
     plt.savefig("peggle_training_progress.png")
     plt.close()
+
+
+
+
+# THINGS TO FIX
+'''
+Ball Left reads 0 instead of 4
+find and click doesn't click in center of button
+'''
