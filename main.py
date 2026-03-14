@@ -153,7 +153,55 @@ def active_ball(img):
 #             time.sleep(5)
 
 def replay_level():
-    pass
+    print("Resetting level")
+    time.sleep(4)  # Wait for the level end screen to fully pop up
+
+    img = current_state()  # Grab full screen
+    clicked_retry = find_btn_and_click("replay_level.png", img)
+
+    if clicked_retry:
+        time.sleep(3)  # Wait for the menu transition
+
+        # Look for the Play/Start button
+        img = current_state()
+        clicked_play = find_btn_and_click("play_btn.png", img)
+
+        if clicked_play:
+            print("Level successfully reset!")
+            time.sleep(2)  # Give it a second to load the board
+        else:
+            print("WARNING: Clicked Retry, but couldn't find the Play button.")
+    else:
+        print("WARNING: Could not find the Retry button.")
+
+
+def find_btn_and_click(template_path, screen_img, threshold=0.8):
+    template = cv2.imread(template_path, cv2.IMREAD_COLOR)
+    if template is None:
+        print(f"Error: Could not load template {template_path}. Check file path!")
+        return False
+
+    result = cv2.matchTemplate(screen_img, template, cv2.TM_CCOEFF_NORMED)
+
+    # Find the pixel coordinate with the highest match percentage
+    min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+
+    if max_val >= threshold:
+
+        # different behavior for level_complete.png
+        if template_path == 'level_complete.png':
+            return True
+
+        h, w = template.shape[:2]
+        center_x = max_loc[0] + (w // 2)
+        center_y = max_loc[1] + (h // 2)
+
+        # Move mouse and click at center
+        pyautogui.moveTo(left + center_x, top + center_y, duration=0.2)
+        pyautogui.click()
+        return True
+
+    return False
 
 def get_current_score():
     img = current_state_data()
@@ -370,6 +418,12 @@ for episode in range(EPISODES):
 
     # Calculate weights (step and optimize) after each LEVEL
 
+    # Check if the level passed or failed
+    passed = find_btn_and_click('level_complete.png', current_state())
+    if not passed:
+        # penalize all rewards by 50% if the level wasn't passed
+        for r in rewards:
+            r = r * 0.5
     # calc Discounted Returns
     discounted_returns = []
     R = 0
