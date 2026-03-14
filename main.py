@@ -5,6 +5,7 @@ import mss # fast screenshots
 import pygetwindow as gw
 import time
 import random
+import matplotlib.pyplot as plt
 
 import pytesseract
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
@@ -340,6 +341,7 @@ optimizer = torch.optim.Adam(player.parameters(), lr=1e-3)
 
 gamma = 0.99
 best_episode_score = 0
+all_episode_scores = []
 EPISODES = 500
 for episode in range(EPISODES):
     replay_level()
@@ -457,3 +459,23 @@ for episode in range(EPISODES):
         print("New Best. Saving score.")
         best_episode_score = episode_score
         torch.save(player.state_dict(), "peggle_player.pt")
+
+    all_episode_scores.append(episode_score)
+
+    # create graph
+    plt.figure(figsize=(10,6))
+    plt.plot(all_episode_scores, label='Raw Score', color='lightgray', alpha=0.7)
+
+
+    moving_avg = np.convolve(all_episode_scores, np.ones(10) / 10, mode='valid')
+    plt.plot(range(9, len(all_episode_scores)), moving_avg, label='10-Ep Moving Average', color='blue', linewidth=2)
+
+    plt.xlabel('Episode')
+    plt.ylabel('Total Score')
+    plt.title('Peggle Bot RL Training Progress')
+    plt.legend()
+    plt.grid(True, linestyle='--', alpha=0.6)
+
+    # Save chart
+    plt.savefig("peggle_training_progress.png")
+    plt.close()
