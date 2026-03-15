@@ -22,6 +22,7 @@ left, top, width, height = peggle_window.left, peggle_window.top, peggle_window.
 
 print(width, height)
 
+sct = mss.mss()
 
 '''shoot ball at angle (deg)'''
 def shoot_ball(angle):
@@ -37,33 +38,33 @@ def shoot_ball(angle):
 
 '''Get image of current screen'''
 def current_state():
-    with mss.mss() as sct:
-        monitor = {
-            "left": left+150,
-            "top": top + 100,
-            "width": width-300,
-            "height": height - 150
-        }
 
-        # circle detection
-        img = np.array(sct.grab(monitor))
-        img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+    monitor = {
+        "left": left+150,
+        "top": top + 100,
+        "width": width-300,
+        "height": height - 150
+    }
+
+    # circle detection
+    img = np.array(sct.grab(monitor))
+    img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
 
     return img
 
 '''Get image of game data, i.e. score and balls left'''
 def current_state_data():
-    with mss.mss() as sct:
-        monitor = {
-            "left": left,
-            "top": top + 25,
-            "width": width-650,
-            "height": height - 600
-        }
 
-        # circle detection
-        img = np.array(sct.grab(monitor))
-        img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+    monitor = {
+        "left": left,
+        "top": top + 25,
+        "width": width-650,
+        "height": height - 600
+    }
+
+    # circle detection
+    img = np.array(sct.grab(monitor))
+    img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
 
     return img
 
@@ -110,31 +111,32 @@ def update_pegs(img):
     return peg_mask
 
 '''Returns boolean whether there is an active ball in play'''
-def active_ball(img):
-    hsv_frame = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-    ball_lower_bound = np.array([18, 162, 117], np.uint8) #    18, 152, 109 :: 18, 162, 117 :: 2, 205, 220
-    ball_upper_bound = np.array([34, 255, 164], np.uint8) #  24, 255, 162 :: 34, 255, 164 :: 27, 255, 255
-
-    ball_mask = cv2.inRange(hsv_frame, ball_lower_bound, ball_upper_bound)
-
-    # Morphological transformations
-    kernel = np.ones((5, 5), "uint8")
-    ball_mask = cv2.dilate(ball_mask, kernel)
-
-    contours, _ = cv2.findContours(ball_mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-    for contour in contours:
-        area = cv2.contourArea(contour)
-
-        x, y, w, h = cv2.boundingRect(contour)
-        # return True, img, ball_mask
-        # if (not (x > 360 and x < 545) and (y < 160)):
-        if (area > 100 and w < 20 and h < 15):
-            # cv2.putText(img, "*" + str(area) + str(w) + str(h), (x, y), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 0, 255))
-            img = cv2.rectangle(img, (x, y), (x + w, y + h), (255, 0, 255), 2)
-            return True#, img, ball_mask
-
-
-    return False#, img, ball_mask
+# artifact function
+# def active_ball(img):
+#     hsv_frame = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+#     ball_lower_bound = np.array([18, 162, 117], np.uint8) #    18, 152, 109 :: 18, 162, 117 :: 2, 205, 220
+#     ball_upper_bound = np.array([34, 255, 164], np.uint8) #  24, 255, 162 :: 34, 255, 164 :: 27, 255, 255
+#
+#     ball_mask = cv2.inRange(hsv_frame, ball_lower_bound, ball_upper_bound)
+#
+#     # Morphological transformations
+#     kernel = np.ones((5, 5), "uint8")
+#     ball_mask = cv2.dilate(ball_mask, kernel)
+#
+#     contours, _ = cv2.findContours(ball_mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+#     for contour in contours:
+#         area = cv2.contourArea(contour)
+#
+#         x, y, w, h = cv2.boundingRect(contour)
+#         # return True, img, ball_mask
+#         # if (not (x > 360 and x < 545) and (y < 160)):
+#         if (area > 100 and w < 20 and h < 15):
+#             # cv2.putText(img, "*" + str(area) + str(w) + str(h), (x, y), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 0, 255))
+#             img = cv2.rectangle(img, (x, y), (x + w, y + h), (255, 0, 255), 2)
+#             return True#, img, ball_mask
+#
+#
+#     return False#, img, ball_mask
 
 
 # primitive run method, just shoot at the first orange in list
@@ -198,50 +200,18 @@ def find_btn_and_click(template_path, screen_img, threshold=0.8):
         center_y = max_loc[1] + (h // 2)
 
         # Move mouse and click at center
-        pyautogui.moveTo(left + center_x, top + center_y, duration=0.2)
+        pyautogui.moveTo(left + center_x + 150, top + center_y + 100, duration=0.2)
         pyautogui.click()
         return True
 
     return False
 
+# img = current_state()
+# print(find_btn_and_click('replay_level.png', img))
+
 def get_current_score():
     img = current_state_data()
     score_crop = img[20:80, 280:465]
-
-    '''old implementation'''
-    # gray = cv2.cvtColor(score_crop, cv2.COLOR_BGRA2BGR)
-    # blurred = cv2.GaussianBlur(gray, (3, 3), 0)
-    # _, thresh = cv2.threshold(blurred, 150, 255, cv2.THRESH_BINARY_INV)
-
-    score_crop = cv2.resize(score_crop, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
-    gray = cv2.cvtColor(score_crop, cv2.COLOR_BGR2GRAY)
-
-    # Otsu's method automatically calculates the optimal threshold value
-    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-
-    # small kernel to erode the black text slightly, breaking connections
-    kernel = np.ones((2, 2), np.uint8)
-    thresh = cv2.erode(thresh, kernel, iterations=1)
-
-    # adds a 15-pixel white border to ensure no error in reading
-    thresh = cv2.copyMakeBorder(thresh, 15, 15, 15, 15, cv2.BORDER_CONSTANT, value=255)
-
-    # cv2.imshow("Score Crop", thresh)
-    # cv2.waitKey(0)
-
-    # --psm 8 tells Tesseract to expect a single word/number
-    # whitelist forces it to only look for digits
-    custom_config = r'--psm 8 -c tessedit_char_whitelist=0123456789'
-    score_str = pytesseract.image_to_string(thresh, config=custom_config)
-
-    try:
-        return int(score_str.strip())
-    except ValueError:
-        return 0
-
-def get_balls_left():
-    img = current_state_data()
-    score_crop = img[175:230, 20:100]
 
     '''old implementation'''
     gray = cv2.cvtColor(score_crop, cv2.COLOR_BGRA2BGR)
@@ -273,6 +243,40 @@ def get_balls_left():
         return int(score_str.strip())
     except ValueError:
         return 0
+
+# print(get_current_score())
+
+def get_balls_left():
+    img = current_state_data()
+    score_crop = img[170:230, 20:100]
+
+    gray = cv2.cvtColor(score_crop, cv2.COLOR_BGRA2BGR)
+    blurred = cv2.GaussianBlur(gray, (3, 3), 0)
+    # _, thresh = cv2.threshold(blurred, 150, 255, cv2.THRESH_BINARY_INV)
+
+    score_crop = cv2.resize(blurred, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
+    gray = cv2.cvtColor(score_crop, cv2.COLOR_BGR2GRAY)
+
+    # Otsu's method automatically calculates the optimal threshold value
+    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+
+    # adds a 15-pixel white border to ensure no error in reading
+    thresh = cv2.copyMakeBorder(gray, 15, 15, 15, 15, cv2.BORDER_CONSTANT, value=255)
+
+    # cv2.imshow("Score Crop", thresh)
+    # cv2.waitKey(0)
+
+    # --psm 8 tells Tesseract to expect a single word/number
+    # whitelist forces it to only look for digits
+    custom_config = r'--psm 8 -c tessedit_char_whitelist=0123456789'
+    score_str = pytesseract.image_to_string(thresh, config=custom_config)
+
+    try:
+        return int(score_str.strip())
+    except ValueError:
+        return 0
+
+# print(get_balls_left())
 
 # REINFORCEMENT LEARNING
 ACTIONS = np.linspace(-85, 85, 171)
@@ -410,7 +414,7 @@ for episode in range(EPISODES):
         reward = (pegs_before - pegs_after) * (score_after - current_score) * 0.001 # refactor due to scale of score
         # penalize no orange pegs hit or no points made
         if reward == 0:
-            reward = -10
+            reward = -50
 
         log_probs.append(log_prob)
         rewards.append(reward)
@@ -425,9 +429,17 @@ for episode in range(EPISODES):
     # Check if the level passed or failed
     passed = find_btn_and_click('level_complete.png', current_state())
     if not passed:
-        # penalize all rewards by 50% if the level wasn't passed
+        # penalize all rewards by 75% if the level wasn't passed
         for r in rewards:
-            r = r * 0.5
+            if r < 0:
+                r *= 2
+            else:
+                r = r * 0.25
+    else:
+        for r in rewards:
+            if r > 0:
+                r *= 2
+
     # calc Discounted Returns
     discounted_returns = []
     R = 0
@@ -454,7 +466,7 @@ for episode in range(EPISODES):
 
 
     episode_score = get_current_score()
-    print(f"Episode {episode} finished. Total Score: {episode_score}. Shots taken: {10-balls}")
+    print(f"Episode {episode} finished. Total Score: {episode_score}. Best Score: {best_episode_score}")
     if (episode_score > best_episode_score):
         print("New Best. Saving score.")
         best_episode_score = episode_score
@@ -478,13 +490,12 @@ for episode in range(EPISODES):
 
     # Save chart
     plt.savefig("peggle_training_progress.png")
-    plt.close()
+    plt.close('all')
 
 
 
 
 # THINGS TO FIX
 '''
-Ball Left reads 0 instead of 4
-find and click doesn't click in center of button
+Add random time delay for shots
 '''
