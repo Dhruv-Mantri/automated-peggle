@@ -172,10 +172,13 @@ def replay_level():
         if clicked_play:
             print("Level successfully reset!")
             time.sleep(2)  # Give it a second to load the board
+            return True
         else:
             print("WARNING: Clicked Retry, but couldn't find the Play button.")
     else:
         print("WARNING: Could not find the Retry button.")
+
+    return False
 
 
 def find_btn_and_click(template_path, screen_img, threshold=0.8):
@@ -202,6 +205,22 @@ def find_btn_and_click(template_path, screen_img, threshold=0.8):
         # Move mouse and click at center
         pyautogui.moveTo(left + center_x + 150, top + center_y + 100, duration=0.2)
         pyautogui.click()
+        return True
+
+    return False
+
+def find_btn(template_path, screen_img, threshold=0.8):
+    template = cv2.imread(template_path, cv2.IMREAD_COLOR)
+    if template is None:
+        print(f"Error: Could not load template {template_path}. Check file path!")
+        return False
+
+    result = cv2.matchTemplate(screen_img, template, cv2.TM_CCOEFF_NORMED)
+
+    # Find the pixel coordinate with the highest match percentage
+    min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+
+    if max_val >= threshold:
         return True
 
     return False
@@ -263,7 +282,7 @@ def get_balls_left():
     # adds a 15-pixel white border to ensure no error in reading
     thresh = cv2.copyMakeBorder(gray, 15, 15, 15, 15, cv2.BORDER_CONSTANT, value=255)
 
-    # cv2.imshow("Score Crop", thresh)
+    # cv2.imshow("Ball Crop", thresh)
     # cv2.waitKey(0)
 
     # --psm 8 tells Tesseract to expect a single word/number
@@ -340,15 +359,23 @@ class PegglePlayer(nn.Module):
         # Output probs for each angle
         return nnf.softmax(x, dim=-1)
 
+# ----------------------------------------------------------------------------------------------- #
+
+# PROGRAM START
+
 player = PegglePlayer()
 optimizer = torch.optim.Adam(player.parameters(), lr=1e-3)
 
 gamma = 0.99
 best_episode_score = 0
 all_episode_scores = []
-EPISODES = 500
+wins = 0
+EPISODES = 200
 for episode in range(EPISODES):
-    replay_level()
+    # ensure you are in level
+    while (replay_level() == False):
+        time.sleep(2)
+        print("Need Replay Button")
     time.sleep(3)
 
     log_probs = []
@@ -362,7 +389,7 @@ for episode in range(EPISODES):
         current_score = get_current_score()
         update_pegs(img)
 
-        if len(orange_pegs) == 0:
+        if len(orange_pegs) == 0 or find_btn('level_complete.png', current_state()):
             break
 
         state = get_state(img)
@@ -392,7 +419,7 @@ for episode in range(EPISODES):
             time.sleep(2)
             if (score != current_score):
                 break
-            print(f"Active Ball. Current:{score} vs {current_score}")
+            # print(f"Active Ball. Current:{score} vs {current_score}")
             cnt += 1
 
         img = current_state()
@@ -412,9 +439,10 @@ for episode in range(EPISODES):
         if (score_after - current_score < 0):
             score_after = current_score + 5000 # add scalar of score
         reward = (pegs_before - pegs_after) * (score_after - current_score) * 0.001 # refactor due to scale of score
+        reward = round(reward, 1)
         # penalize no orange pegs hit or no points made
         if reward == 0:
-            reward = -50
+            reward = -100
 
         log_probs.append(log_prob)
         rewards.append(reward)
@@ -426,9 +454,15 @@ for episode in range(EPISODES):
 
     # Calculate weights (step and optimize) after each LEVEL
 
+    # if level beat, wait for ball to land
+    time.sleep(2)
+    if find_btn('replay_level.png', current_state()) == False:
+        while (find_btn('level_complete.png', current_state()) == False):
+            time.sleep(2)
+
     # Check if the level passed or failed
     passed = find_btn_and_click('level_complete.png', current_state())
-    if not passed:
+    if passed == False:
         # penalize all rewards by 75% if the level wasn't passed
         for r in rewards:
             if r < 0:
@@ -436,9 +470,10 @@ for episode in range(EPISODES):
             else:
                 r = r * 0.25
     else:
+        wins += 1
         for r in rewards:
             if r > 0:
-                r *= 2
+                r *= 10 # greatly promote choices if the bot wins
 
     # calc Discounted Returns
     discounted_returns = []
@@ -466,7 +501,7 @@ for episode in range(EPISODES):
 
 
     episode_score = get_current_score()
-    print(f"Episode {episode} finished. Total Score: {episode_score}. Best Score: {best_episode_score}")
+    print(f"Episode {episode} finished. Total Score: {episode_score}. Best Score: {best_episode_score}. Wins: {wins}")
     if (episode_score > best_episode_score):
         print("New Best. Saving score.")
         best_episode_score = episode_score
