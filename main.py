@@ -17,7 +17,11 @@ import torch.nn.functional as nnf
 
 windows = gw.getAllTitles()
 
+# peggle advanced feature: -w 2240 -h 1400
 peggle_window = gw.getWindowsWithTitle('Peggle Deluxe 1.01')[0]
+peggle_window.restore()
+# peggle_window.resizeTo(800, 600)
+
 left, top, width, height = peggle_window.left, peggle_window.top, peggle_window.width, peggle_window.height
 
 print(width, height)
@@ -84,15 +88,6 @@ def update_pegs(img):
     kernel = np.ones((5, 5), "uint8")
     peg_mask = cv2.dilate(peg_mask, kernel)
 
-    # green peg mask
-    green_peg_lower_bound = np.array([40, 81, 75], np.uint8)
-    green_peg_upper_bound = np.array([62, 255, 213], np.uint8)
-    # purple peg mask
-    # blue peg mask? (optional)
-    blue_peg_lower_bound = np.array([108, 119, 140], np.uint8)
-    blue_peg_upper_bound = np.array([122, 160, 255], np.uint8)
-
-
     contours, _ = cv2.findContours(peg_mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     for contour in contours:
        area = cv2.contourArea(contour)
@@ -103,57 +98,8 @@ def update_pegs(img):
                continue
            orange_pegs.append((x,y))
            img = cv2.rectangle(img, (x, y), (x + w, y + h), (0, 0, 255), 2)
-           # cv2.putText(img, "*"+str(area), (x, y), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255))
-           # cv2.imshow("Peggle View", img)
-           # cv2.imshow("Red View", peg_mask)
 
-    # print(len(orange_pegs))
     return peg_mask
-
-'''Returns boolean whether there is an active ball in play'''
-# artifact function
-# def active_ball(img):
-#     hsv_frame = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-#     ball_lower_bound = np.array([18, 162, 117], np.uint8) #    18, 152, 109 :: 18, 162, 117 :: 2, 205, 220
-#     ball_upper_bound = np.array([34, 255, 164], np.uint8) #  24, 255, 162 :: 34, 255, 164 :: 27, 255, 255
-#
-#     ball_mask = cv2.inRange(hsv_frame, ball_lower_bound, ball_upper_bound)
-#
-#     # Morphological transformations
-#     kernel = np.ones((5, 5), "uint8")
-#     ball_mask = cv2.dilate(ball_mask, kernel)
-#
-#     contours, _ = cv2.findContours(ball_mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-#     for contour in contours:
-#         area = cv2.contourArea(contour)
-#
-#         x, y, w, h = cv2.boundingRect(contour)
-#         # return True, img, ball_mask
-#         # if (not (x > 360 and x < 545) and (y < 160)):
-#         if (area > 100 and w < 20 and h < 15):
-#             # cv2.putText(img, "*" + str(area) + str(w) + str(h), (x, y), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 0, 255))
-#             img = cv2.rectangle(img, (x, y), (x + w, y + h), (255, 0, 255), 2)
-#             return True#, img, ball_mask
-#
-#
-#     return False#, img, ball_mask
-
-
-# primitive run method, just shoot at the first orange in list
-# def run():
-#     while (len(orange_pegs) > 0):
-#         img = current_state()
-#         update_pegs(img)
-#         time.sleep(1)
-#         # cv2.imshow("Peggle View", img)
-#
-#         # calculate the ball with highest y pos
-#         shoot_ball(orange_pegs[0][0], orange_pegs[0][1])
-#         # print(orange_pegs[0][0], orange_pegs[0][1])
-#         while (active_ball(img) == True):
-#             # print(active_ball(img))
-#             img = current_state()
-#             time.sleep(5)
 
 def replay_level():
     print("Resetting level")
@@ -325,13 +271,6 @@ def get_state(img):
 class PegglePlayer(nn.Module):
     def __init__(self):
         super().__init__()
-        # self.net = nn.Sequential(
-        #     nn.Linear(3, 64),
-        #     nn.ReLU(),
-        #     nn.Linear(64, len(ACTIONS)),
-        #     nn.Softmax(dim=-1)
-        # )
-        # Convert to CNN
 
         # 3 conv layers --> 84x84 to 7x7
         self.conv1 = nn.Conv2d(in_channels=3, out_channels=32, kernel_size=8, stride=4)
@@ -528,7 +467,7 @@ for episode in range(EPISODES):
     plt.close('all')
 
 
-
+print("Done Playing!")
 
 # THINGS TO FIX
 '''
