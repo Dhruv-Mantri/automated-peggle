@@ -24,7 +24,10 @@ peggle_window.restore()
 
 left, top, width, height = peggle_window.left, peggle_window.top, peggle_window.width, peggle_window.height
 
-print(width, height)
+print(width, height) # picture default is 1209, 944
+
+width_scalar = ( width / 1209 )
+height_scalar = ( height / 944)
 
 sct = mss.mss()
 
@@ -44,10 +47,10 @@ def shoot_ball(angle):
 def current_state():
 
     monitor = {
-        "left": left+150,
-        "top": top + 100,
-        "width": width-300,
-        "height": height - 150
+        "left": left + int(140 * width_scalar),
+        "top": top + int(100 * height_scalar),
+        "width": width - int(300 * width_scalar),
+        "height": height - int(150 * height_scalar)
     }
 
     # circle detection
@@ -61,9 +64,9 @@ def current_state_data():
 
     monitor = {
         "left": left,
-        "top": top + 25,
-        "width": width-650,
-        "height": height - 600
+        "top": top + int(25 * height_scalar),
+        "width": width - int(650 * width_scalar),
+        "height": height - int(600 * height_scalar)
     }
 
     # circle detection
@@ -71,6 +74,32 @@ def current_state_data():
     img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
 
     return img
+
+# make function to scale images to size of peggle play screen
+def image_scale():
+    '''take the original images and scale them as per the width and height of the current play screen'''
+
+    image = cv2.imread("replay_level.png")
+    height_x, width_x = image.shape[:2]
+    new_dimension = (int(width_x * width_scalar), int(height_x * height_scalar))
+    # print((width_x, height_x), new_dimension)
+    replay_btn_scaled = cv2.resize(image, new_dimension, interpolation=cv2.INTER_LINEAR)
+    cv2.imwrite('replay_level_resized.png', replay_btn_scaled)
+
+    image = cv2.imread("level_complete.png")
+    height_x, width_x = image.shape[:2]
+    new_dimension = (int(width_x * width_scalar), int(height_x * height_scalar))
+    # print((width_x, height_x), new_dimension)
+    level_complete_scaled = cv2.resize(image, new_dimension, interpolation=cv2.INTER_LINEAR)
+    cv2.imwrite('level_complete_resized.png', level_complete_scaled)
+
+    image = cv2.imread("play_btn.png")
+    height_x, width_x = image.shape[:2]
+    new_dimension = (int(width_x * width_scalar), int(height_x * height_scalar))
+    # print((width_x, height_x), new_dimension)
+    play_btn_scaled = cv2.resize(image, new_dimension, interpolation=cv2.INTER_LINEAR)
+    cv2.imwrite('play_btn_resized.png', play_btn_scaled)
+
 
 orange_pegs = [0]
 def update_pegs(img):
@@ -106,14 +135,14 @@ def replay_level():
     time.sleep(4)  # Wait for the level end screen to fully pop up
 
     img = current_state()  # Grab full screen
-    clicked_retry = find_btn_and_click("replay_level.png", img)
+    clicked_retry = find_btn_and_click("replay_level_resized.png", img)
 
     if clicked_retry:
         time.sleep(3)  # Wait for the menu transition
 
         # Look for the Play/Start button
         img = current_state()
-        clicked_play = find_btn_and_click("play_btn.png", img)
+        clicked_play = find_btn_and_click("play_btn_resized.png", img)
 
         if clicked_play:
             print("Level successfully reset!")
@@ -141,7 +170,7 @@ def find_btn_and_click(template_path, screen_img, threshold=0.8):
     if max_val >= threshold:
 
         # different behavior for level_complete.png
-        if template_path == 'level_complete.png':
+        if template_path == 'level_complete_resized.png':
             return True
 
         h, w = template.shape[:2]
@@ -149,7 +178,7 @@ def find_btn_and_click(template_path, screen_img, threshold=0.8):
         center_y = max_loc[1] + (h // 2)
 
         # Move mouse and click at center
-        pyautogui.moveTo(left + center_x + 150, top + center_y + 100, duration=0.2)
+        pyautogui.moveTo(left + center_x + int(150 * width_scalar), top + center_y + int(100 * height_scalar), duration=0.2)
         pyautogui.click()
         return True
 
@@ -176,11 +205,17 @@ def find_btn(template_path, screen_img, threshold=0.8):
 
 def get_current_score():
     img = current_state_data()
-    score_crop = img[20:80, 280:465]
+    y_min_og, y_max_og = 20, 80
+    x_min_og, x_max_og = 280, 465
+
+    y_min_scaled, y_max_scaled = int(y_min_og * height_scalar), int(y_max_og * height_scalar)
+    x_min_scaled, x_max_scaled = int(x_min_og * width_scalar), int(x_max_og * width_scalar)
+
+    score_crop = img[y_min_scaled:y_max_scaled, x_min_scaled:x_max_scaled]
 
     '''old implementation'''
-    gray = cv2.cvtColor(score_crop, cv2.COLOR_BGRA2BGR)
-    blurred = cv2.GaussianBlur(gray, (3, 3), 0)
+    # gray = cv2.cvtColor(score_crop, cv2.COLOR_BGRA2BGR)
+    blurred = cv2.GaussianBlur(score_crop, (3, 3), 0)
     # _, thresh = cv2.threshold(blurred, 150, 255, cv2.THRESH_BINARY_INV)
 
     score_crop = cv2.resize(blurred, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
@@ -191,7 +226,7 @@ def get_current_score():
 
     # small kernel to erode the black text slightly, breaking connections
     kernel = np.ones((2, 2), np.uint8)
-    thresh = cv2.erode(thresh, kernel, iterations=1)
+    thresh = cv2.dilate(thresh, kernel, iterations=3)
 
     # adds a 15-pixel white border to ensure no error in reading
     thresh = cv2.copyMakeBorder(thresh, 15, 15, 15, 15, cv2.BORDER_CONSTANT, value=255)
@@ -201,7 +236,8 @@ def get_current_score():
 
     # --psm 8 tells Tesseract to expect a single word/number
     # whitelist forces it to only look for digits
-    custom_config = r'--psm 8 -c tessedit_char_whitelist=0123456789'
+    # psm 7 is for single line
+    custom_config = r'--psm 7 -c tessedit_char_whitelist=0123456789'
     score_str = pytesseract.image_to_string(thresh, config=custom_config)
 
     try:
@@ -213,7 +249,14 @@ def get_current_score():
 
 def get_balls_left():
     img = current_state_data()
-    score_crop = img[170:230, 20:100]
+
+    y_min_og, y_max_og = 170, 230
+    x_min_og, x_max_og = 20, 100
+
+    y_min_scaled, y_max_scaled = int(y_min_og * height_scalar), int(y_max_og * height_scalar)
+    x_min_scaled, x_max_scaled = int(x_min_og * width_scalar), int(x_max_og * width_scalar)
+
+    score_crop = img[y_min_scaled:y_max_scaled, x_min_scaled:x_max_scaled]
 
     gray = cv2.cvtColor(score_crop, cv2.COLOR_BGRA2BGR)
     blurred = cv2.GaussianBlur(gray, (3, 3), 0)
@@ -301,7 +344,7 @@ class PegglePlayer(nn.Module):
 # ----------------------------------------------------------------------------------------------- #
 
 # PROGRAM START
-
+image_scale()
 player = PegglePlayer()
 optimizer = torch.optim.Adam(player.parameters(), lr=1e-3)
 
@@ -328,7 +371,7 @@ for episode in range(EPISODES):
         current_score = get_current_score()
         update_pegs(img)
 
-        if len(orange_pegs) == 0 or find_btn('level_complete.png', current_state()):
+        if len(orange_pegs) == 0 or find_btn('level_complete_resized.png', current_state()):
             break
 
         state = get_state(img)
@@ -395,12 +438,12 @@ for episode in range(EPISODES):
 
     # if level beat, wait for ball to land
     time.sleep(2)
-    if find_btn('replay_level.png', current_state()) == False:
-        while (find_btn('level_complete.png', current_state()) == False):
+    if find_btn('replay_level_resized.png', current_state()) == False:
+        while (find_btn('level_complete_resized.png', current_state()) == False):
             time.sleep(2)
 
     # Check if the level passed or failed
-    passed = find_btn_and_click('level_complete.png', current_state())
+    passed = find_btn_and_click('level_complete_resized.png', current_state())
     if passed == False:
         # penalize all rewards by 75% if the level wasn't passed
         for r in rewards:
