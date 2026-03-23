@@ -249,48 +249,6 @@ def get_current_score():
 
 # print(get_current_score())
 
-def get_balls_left():
-    img = current_state_data()
-
-    y_min_og, y_max_og = 175, 230
-    x_min_og, x_max_og = 20, 100
-
-    y_min_scaled, y_max_scaled = int(y_min_og * height_scalar), int(y_max_og * height_scalar)
-    x_min_scaled, x_max_scaled = int(x_min_og * width_scalar), int(x_max_og * width_scalar)
-
-    score_crop = img[y_min_scaled:y_max_scaled, x_min_scaled:x_max_scaled]
-
-    gray = cv2.cvtColor(score_crop, cv2.COLOR_BGRA2BGR)
-    blurred = cv2.GaussianBlur(gray, (3, 3), 0)
-    # _, thresh = cv2.threshold(blurred, 150, 255, cv2.THRESH_BINARY_INV)
-
-    score_crop = cv2.resize(blurred, None, fx=3, fy=3, interpolation=cv2.INTER_LINEAR)
-    gray = cv2.cvtColor(score_crop, cv2.COLOR_BGR2GRAY)
-
-    # Otsu's method automatically calculates the optimal threshold value
-    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-
-    kernel = np.ones((2, 2), np.uint8)
-    thresh = cv2.dilate(thresh, kernel, iterations=5)
-
-    # adds a 15-pixel white border to ensure no error in reading
-    thresh = cv2.copyMakeBorder(thresh, 15, 15, 15, 15, cv2.BORDER_CONSTANT, value=255)
-
-    # cv2.imshow("Ball Crop", thresh)
-    # cv2.waitKey(0)
-
-    # --psm 8 tells Tesseract to expect a single word/number
-    # whitelist forces it to only look for digits
-    custom_config = r'--psm 8 -c tessedit_char_whitelist=0123456789'
-    score_str = pytesseract.image_to_string(thresh, config=custom_config)
-
-    try:
-        return int(score_str.strip())
-    except ValueError:
-        return 0
-
-# print(get_balls_left())
-
 # REINFORCEMENT LEARNING
 ACTIONS = np.linspace(-85, 85, 171)
 
@@ -370,7 +328,6 @@ for episode in range(EPISODES):
 
     # Play one level
     # now that in level, don't stop till see replay button again
-    balls = get_balls_left()
     while not find_btn('replay_level_resized.png', current_state()): # end level when no more balls left
 
         img = current_state()
@@ -434,11 +391,8 @@ for episode in range(EPISODES):
 
         log_probs.append(log_prob)
         rewards.append(reward)
-        # loss = -log_prob * reward
 
-        balls = get_balls_left()
-
-        print(f"Angle {ACTIONS[action_idx]:.1f}° | Reward {reward} | Ball {balls}")
+        print(f"Angle {ACTIONS[action_idx]:.1f}° | Reward {reward} | Score {current_score}")
 
     # Calculate weights (step and optimize) after each LEVEL
 
