@@ -5,6 +5,8 @@ import mss # fast screenshots
 import pygetwindow as gw
 import time
 import random
+import matplotlib
+matplotlib.use('Agg') # Forces matplotlib to render purely to image files, ignoring Tkinter
 import matplotlib.pyplot as plt
 
 import pytesseract
@@ -33,8 +35,8 @@ sct = mss.mss()
 
 '''shoot ball at angle (deg)'''
 def shoot_ball(angle):
-    r = 200 # constant radius
-    cx, cy = 604, 100 # cannon pos
+    r = 150 # constant radius
+    cx, cy = int(604 * width_scalar), int(100 * height_scalar) # cannon pos
 
     x = cx + r * np.sin(np.deg2rad(angle))
     y = cy + r * np.cos(np.deg2rad(angle))
@@ -122,7 +124,7 @@ def update_pegs(img):
        area = cv2.contourArea(contour)
        if area > 120 and area < 550: # Filter small areas
            x, y, w, h = cv2.boundingRect(contour)
-           if ( (x > 360 and x < 545) and (y < 160) ):
+           if ( (x > (360 * width_scalar) and x < (545 * width_scalar) ) and ( y < int (160 * height_scalar)) ):
                img = cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 255), 2)
                continue
            orange_pegs.append((x,y))
@@ -250,7 +252,7 @@ def get_current_score():
 def get_balls_left():
     img = current_state_data()
 
-    y_min_og, y_max_og = 170, 230
+    y_min_og, y_max_og = 175, 230
     x_min_og, x_max_og = 20, 100
 
     y_min_scaled, y_max_scaled = int(y_min_og * height_scalar), int(y_max_og * height_scalar)
@@ -262,14 +264,17 @@ def get_balls_left():
     blurred = cv2.GaussianBlur(gray, (3, 3), 0)
     # _, thresh = cv2.threshold(blurred, 150, 255, cv2.THRESH_BINARY_INV)
 
-    score_crop = cv2.resize(blurred, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
+    score_crop = cv2.resize(blurred, None, fx=3, fy=3, interpolation=cv2.INTER_LINEAR)
     gray = cv2.cvtColor(score_crop, cv2.COLOR_BGR2GRAY)
 
     # Otsu's method automatically calculates the optimal threshold value
     _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
 
+    kernel = np.ones((2, 2), np.uint8)
+    thresh = cv2.dilate(thresh, kernel, iterations=5)
+
     # adds a 15-pixel white border to ensure no error in reading
-    thresh = cv2.copyMakeBorder(gray, 15, 15, 15, 15, cv2.BORDER_CONSTANT, value=255)
+    thresh = cv2.copyMakeBorder(thresh, 15, 15, 15, 15, cv2.BORDER_CONSTANT, value=255)
 
     # cv2.imshow("Ball Crop", thresh)
     # cv2.waitKey(0)
@@ -364,8 +369,9 @@ for episode in range(EPISODES):
     rewards = []
 
     # Play one level
+    # now that in level, don't stop till see replay button again
     balls = get_balls_left()
-    while balls > 0: # end level when no more balls left
+    while not find_btn('replay_level_resized.png', current_state()): # end level when no more balls left
 
         img = current_state()
         current_score = get_current_score()
@@ -446,16 +452,16 @@ for episode in range(EPISODES):
     passed = find_btn_and_click('level_complete_resized.png', current_state())
     if passed == False:
         # penalize all rewards by 75% if the level wasn't passed
-        for r in rewards:
-            if r < 0:
-                r *= 2
+        for i in range(len(rewards)):
+            if rewards[i] < 0:
+                rewards[i] *= 2
             else:
-                r = r * 0.25
+                rewards[i] *= 0.25
     else:
         wins += 1
-        for r in rewards:
-            if r > 0:
-                r *= 10 # greatly promote choices if the bot wins
+        for i in range(len(rewards)):
+            if rewards[i] > 0:
+                rewards[i] *= 10 # greatly promote choices if the bot wins
 
     # calc Discounted Returns
     discounted_returns = []
@@ -475,11 +481,15 @@ for episode in range(EPISODES):
     for log_prob, Gt in zip(log_probs, discounted_returns):
         policy_loss.append(-log_prob * Gt)
 
-    optimizer.zero_grad()
-    # sum all losses from episode and backpropagate
-    loss = torch.stack(policy_loss).sum()
-    loss.backward()
-    optimizer.step()
+
+    if len(policy_loss) > 0:
+        optimizer.zero_grad()
+        # sum all losses from episode and backpropagate
+        loss = torch.stack(policy_loss).sum()
+        loss.backward()
+        optimizer.step()
+    else:
+        print("WARNING: Zero shots taken this episode. Skipping backprop.")
 
 
     episode_score = get_current_score()
