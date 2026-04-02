@@ -4,6 +4,7 @@ import numpy as np
 import mss # fast screenshots
 import pygetwindow as gw
 import time
+import os
 import random
 import matplotlib
 matplotlib.use('Agg') # Forces matplotlib to render purely to image files, ignoring Tkinter
@@ -217,20 +218,19 @@ def get_current_score():
 
     '''old implementation'''
     # gray = cv2.cvtColor(score_crop, cv2.COLOR_BGRA2BGR)
-    blurred = cv2.GaussianBlur(score_crop, (3, 3), 0)
-    # _, thresh = cv2.threshold(blurred, 150, 255, cv2.THRESH_BINARY_INV)
-
-    score_crop = cv2.resize(blurred, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
+    # 1. Grayscale FIRST
     gray = cv2.cvtColor(score_crop, cv2.COLOR_BGR2GRAY)
 
-    # Otsu's method automatically calculates the optimal threshold value
-    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    # 2. Upscale SECOND (Give Tesseract more pixels to work with)
+    resized = cv2.resize(gray, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
 
-    # small kernel to erode the black text slightly, breaking connections
+    # 3. OTSU Threshold
+    _, thresh = cv2.threshold(resized, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+
     kernel = np.ones((2, 2), np.uint8)
     thresh = cv2.dilate(thresh, kernel, iterations=3)
 
-    # adds a 15-pixel white border to ensure no error in reading
+    # 5. Add Padding
     thresh = cv2.copyMakeBorder(thresh, 15, 15, 15, 15, cv2.BORDER_CONSTANT, value=255)
 
     # cv2.imshow("Score Crop", thresh)
@@ -250,7 +250,7 @@ def get_current_score():
 # print(get_current_score())
 
 # REINFORCEMENT LEARNING
-ACTIONS = np.linspace(-85, 85, 171)
+ACTIONS = np.linspace(-85, 85, 86)
 
 
 # define the state
@@ -311,11 +311,31 @@ image_scale()
 player = PegglePlayer()
 optimizer = torch.optim.Adam(player.parameters(), lr=1e-3)
 
+# Check if there are already weights for training
+save_file = "peggle_player.pt"
+if os.path.exists(save_file):
+    print("Found saved model weights! Waking up the bot...")
+    checkpoint = torch.load(save_file)
+
+    # find if previous score available
+    if isinstance(checkpoint, dict) and 'model_state' in checkpoint:
+        player.load_state_dict(checkpoint['model_state'])
+        best_episode_score = checkpoint['best_score']
+        print(f"Memories restored. Defending High Score: {best_episode_score}")
+
+    else:
+        # Fallback just in case you load an older save file
+        player.load_state_dict(checkpoint)
+        print("Old format memories restored. High score reset to 0.")
+else:
+    print("No save file found. Starting with a blank slate.")
+
+
 gamma = 0.99
 best_episode_score = 0
 all_episode_scores = []
 wins = 0
-EPISODES = 200
+EPISODES = 130
 for episode in range(EPISODES):
     # ensure you are in level
     while (replay_level() == False):
@@ -343,7 +363,9 @@ for episode in range(EPISODES):
         probs = player(state_t)
         dist = torch.distributions.Categorical(probs)
 
-        if random.random() < 0.2:
+        # Calculate decaying epsilon: Starts at 50% random, decays to 5% by episode x
+        epsilon = max(0.05, 0.5 * (1 - (episode / 500)))
+        if random.random() < epsilon:
             action_idx = random.randrange(len(ACTIONS))
         else:
             action = dist.sample()
@@ -392,7 +414,7 @@ for episode in range(EPISODES):
         log_probs.append(log_prob)
         rewards.append(reward)
 
-        print(f"Angle {ACTIONS[action_idx]:.1f}° | Reward {reward} | Score {current_score}")
+        print(f"Angle {ACTIONS[action_idx]:.1f}° | Reward {reward} | Score {score_after}")
 
     # Calculate weights (step and optimize) after each LEVEL
 
@@ -451,7 +473,14 @@ for episode in range(EPISODES):
     if (episode_score > best_episode_score):
         print("New Best. Saving score.")
         best_episode_score = episode_score
-        torch.save(player.state_dict(), "peggle_player.pt")
+
+        # Pack the brain and the score into a single package
+        save_package = {
+            'model_state': player.state_dict(),
+            'best_score': best_episode_score
+        }
+
+        torch.save(save_package, "peggle_player.pt")
 
     all_episode_scores.append(episode_score)
 
